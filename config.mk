@@ -12,7 +12,7 @@ ifndef DEBUG
 MODE = -o2 -flto
 endif
 
-CXXFLAGS = -std=c++17 -Wall ${MODE}
+CXXFLAGS = -std=c++17 -Wall -fmax-errors=2 -lpthread ${MODE}
 
 BUILD_DIR_GUARD = @mkdir -p $(BUILD_DIR)
 

@@ -3,6 +3,11 @@
 
 #include <algorithm>
 #include <iostream>
+#include <iomanip>
+#include <string_view>
+#include <sstream>
+
+#include "flags.h"
 
 using boost::asio::io_context;
 using boost::asio::ip::icmp;
@@ -245,11 +250,16 @@ calculate_checksum(icmp_header& header, It beg, It end)
 
 struct pdping final
 {
-    pdping(io_context& ioc, const char* dest)
+    pdping(io_context& ioc, std::string_view dest, int nbytes,
+           int m_sended)
         : resolver_(ioc), socket_(ioc, icmp::v4()),
-          timer_(ioc), n_sended_(0), num_replies_(0)
+          timer_(ioc), n_sended_(0), n_replies_(0),
+          nbytes_(nbytes), m_sended_(m_sended)
     {
         endpoint_ = *resolver_.resolve(icmp::v4(), dest, "").begin();
+        std::cout << "PING " << nbytes_
+                  << " bytes of data to " 
+                  << endpoint_.address().to_string() << '\n';
         start_send();
         start_receive();
     }
@@ -257,14 +267,19 @@ struct pdping final
     void
     start_send ()
     {
-        std::string message("huhi");
+        if(n_sended_ == m_sended_)
+        {
+            return;
+        }
+
+        std::string message(nbytes_, 'q');
 
         icmp_header icmph;
         icmph.type(icmp_header::echo_request);
         icmph.code(0);
         icmph.id(getid());
         icmph.sequence_number(++n_sended_);
-        calculate_checksum(icmph, message.begin(), message.end());
+        calculate_checksum(icmph, message.cbegin(), message.cend());
 
         boost::asio::streambuf request_buf;
         std::ostream os(&request_buf);
@@ -273,16 +288,17 @@ struct pdping final
         time_sent_ = steady_timer::clock_type::now();
         socket_.send_to(request_buf.data(), endpoint_);
 
-        num_replies_ = 0;
-        timer_.expires_at(time_sent_ + chrono::seconds(5));
+        n_replies_ = 0;
+        timer_.expires_at(time_sent_ + chrono::seconds(2));
         timer_.async_wait(boost::bind(&pdping::handle_timeout, this));
     }
 
     void
     handle_timeout ()
     {
-        if(num_replies_ == 0)
+        if(n_replies_ == 0)
             std::cout << "Request timed out!\n";
+
         timer_.expires_at(time_sent_ + chrono::seconds(1));
         timer_.async_wait(boost::bind(&pdping::start_send, this));
     }
@@ -303,11 +319,12 @@ struct pdping final
         ipv4_header ipv4h;
         icmp_header icmph;
         is >> ipv4h >> icmph;
+
         if (is && icmph.type() == icmp_header::echo_reply
                && icmph.id() == getid()
                && icmph.sequence_number() == n_sended_)
         {
-            if (num_replies_++ == 0)
+            if (n_replies_++ == 0)
                 timer_.cancel();
 
             chrono::steady_clock::time_point now
@@ -320,8 +337,10 @@ struct pdping final
             << ": icmp_seq=" << icmph.sequence_number()
             << ", ttl=" << ipv4h.time_to_live()
             << ", time="
-            << chrono::duration_cast<chrono::milliseconds>(elapsed).count()
-            << std::endl;
+            << static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(elapsed).count()) / 1e6 << "ms\n";
+
+            if (n_sended_ == m_sended_)
+                return;
         }
         start_receive();
     }
@@ -337,20 +356,55 @@ struct pdping final
     boost::asio::streambuf reply_buf_;
     boost::asio::steady_timer timer_;
     chrono::steady_clock::time_point time_sent_;
-    int n_sended_;
-    unsigned short num_replies_;
+    unsigned short n_sended_;
+    unsigned short n_replies_;
+    unsigned short nbytes_;
+    unsigned short m_sended_;
 };
 
+
+void print_help(const char * executable) {
+    auto print_entry = [](std::string_view spec,
+                          std::string_view desc)
+        {
+            std::cout << std::left << "  "
+            << std::setw(20) << spec
+            << desc << '\n';
+        };
+    std::cout << "Usage: " << executable
+        << " [options] " << "--host <hostname>\n"
+        << "Options:\n";
+    print_entry("-host <hostname>", "hostname to ping");
+    print_entry("-n <count>", "send <count> bytes");
+    print_entry("-c <count>", "stop after <count> replies");
+}
 int
-main()
+main(int argc, const char* argv[])
 {
+    const flags::args args(argc, argv);
+
+    if (args.get<bool>("help").has_value())
+    {
+        print_help(*argv);
+        return 0;
+
+    }
     if (geteuid() != 0)
     {
         std::cerr << "You should run this program as root.\n";
         return 1;
     }
+    const auto host = args.get<std::string_view>("host");
+    if (!host) {
+        std::cerr << "You must provide hostname to ping.\n";
+        return 1;
+    }
+
+    const auto nbytes = args.get<unsigned short>("n", 32);
+    const auto max_replies = args.get<unsigned short>("c", 256);
+
     io_context ioc;
-    pdping pp(ioc, "127.0.0.1");
+    pdping pp(ioc, host.value(), nbytes, max_replies);
     ioc.run();
     return 0;
 }

@@ -8,7 +8,6 @@ using boost::asio::io_context;
 using boost::asio::ip::icmp;
 using boost::asio::steady_timer;
 namespace chrono = boost::asio::chrono;
-
 using namespace boost::placeholders;
 
 
@@ -258,7 +257,7 @@ struct pdping final
     void
     start_send ()
     {
-        std::string message("");
+        std::string message("huhi");
 
         icmp_header icmph;
         icmph.type(icmp_header::echo_request);
@@ -345,6 +344,11 @@ struct pdping final
 int
 main()
 {
+    if (geteuid() != 0)
+    {
+        std::cerr << "You should run this program as root.\n";
+        return 1;
+    }
     io_context ioc;
     pdping pp(ioc, "127.0.0.1");
     ioc.run();

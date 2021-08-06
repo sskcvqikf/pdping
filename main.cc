@@ -26,67 +26,67 @@ struct ipv4_header final
     }
 
     unsigned char
-    version() const
+    version() const noexcept
     {
         return (header_[0] >> 4) & 0xF;
     }
 
     unsigned short
-    header_length() const
+    header_length() const noexcept
     {
         return (header_[0] & 0xF) * 4;
     }
 
     unsigned char
-    type_of_service() const 
+    type_of_service() const noexcept 
     {
         return header_[1];
     }
 
     unsigned short
-    total_length() const
+    total_length() const noexcept
     {
         return from_seq(2, 3);
     }
     
     unsigned short
-    identification() const
+    identification() const noexcept
     {
         return from_seq(4, 5);
     }
 
     bool
-    dont_fragment() const
+    dont_fragment() const noexcept
     {
         return (header_[6] & 0x40) != 0;
     }
     
     bool
-    more_fragments() const
+    more_fragments() const noexcept
     {
         return (header_[6] & 0x20) != 0;
     }
     
     unsigned short
-    fragment_offset() const
+    fragment_offset() const noexcept
     {
         return from_seq(6, 7) & 0x1FFF;
     }
 
     unsigned int
-    time_to_live() const
+    time_to_live() const noexcept
     {
         return header_[8];
     }
 
     unsigned char
-    protocol() const
+    protocol() const noexcept
     {
         return header_[9];
     }
 
     unsigned short
-    header_checksum() const
+    header_checksum() const noexcept
     {
         return from_seq(10, 11);
     }
@@ -122,7 +122,7 @@ struct ipv4_header final
   }
 private:
     unsigned short
-    from_seq(int a, int b) const
+    from_seq(int a, int b) const noexcept
     {
         return (header_[a] << 8) + header_[b];
     }
@@ -143,58 +143,58 @@ struct icmp_header final
     }
 
     void
-    type (header_t c)
+    type (header_t c) noexcept
     {
         header_[0] = c;
     }
     header_t
-    type ()
+    type () const noexcept
     {
         return header_[0];
     }
 
     void
-    code (header_t c)
+    code (header_t c) noexcept
     {
         header_[1] = c;
     }
     header_t
-    code ()
+    code () const noexcept
     {
         return header_[1];
     }
 
-    unsigned short
-    checksum ()
-    {
-        return from_seq(2, 3);
-    }
     void
-    checksum (unsigned short value)
+    checksum (unsigned short value) noexcept
     {
         to_seq(2, 3, value);
     }
-
     unsigned short
-    id ()
+    checksum () const noexcept
     {
-        return from_seq(4, 5);
+        return from_seq(2, 3);
     }
+
     void
-    id (unsigned short value)
+    id (unsigned short value) noexcept
     {
         to_seq(4, 5, value);
     }
-
     unsigned short
-    sequence_number ()
+    id () const noexcept
     {
-        return from_seq(6, 7);
+        return from_seq(4, 5);
     }
+
     void
-    sequence_number (unsigned short value)
+    sequence_number (unsigned short value) noexcept
     {
         to_seq(6, 7, value);
+    }
+    unsigned short
+    sequence_number () const noexcept
+    {
+        return from_seq(6, 7);
     }
 
     friend std::istream&
@@ -210,14 +210,14 @@ struct icmp_header final
     }
 private:
     void
-    to_seq (int i1, int i2, unsigned short value)
+    to_seq (int i1, int i2, unsigned short value) noexcept
     {
         header_[i1] = static_cast<header_t>(value >> 8);
         header_[i2] = static_cast<header_t>(value & 0xFF);
     }
 
     unsigned short
-    from_seq (int i1, int i2)
+    from_seq (int i1, int i2) const noexcept
     {
         return (header_[i1] << 8) + header_[i2];
     }
@@ -228,7 +228,7 @@ private:
 
 template<typename It>
 void
-calculate_checksum(icmp_header& header, It beg, It end)
+calculate_checksum(icmp_header& header, It beg, It end) noexcept
 {
     unsigned int sum = (header.type() << 8) + header.code()
         + header.id() + header.sequence_number();
@@ -345,7 +345,7 @@ struct pdping final
         start_receive();
     }
 
-    static unsigned short getid()
+    static unsigned short getid() noexcept
     {
         return static_cast<unsigned short>(::getpid());
     }

@@ -290,17 +290,13 @@ struct pdping final
 
         n_replies_ = 0;
         timer_.expires_at(time_sent_ + chrono::seconds(2));
-        timer_.async_wait(boost::bind(&pdping::handle_timeout, this));
-    }
+        timer_.async_wait([this](const boost::system::error_code&){
+            if(n_replies_ == 0)
+                std::cout << "Request timed out!\n";
 
-    void
-    handle_timeout ()
-    {
-        if(n_replies_ == 0)
-            std::cout << "Request timed out!\n";
-
-        timer_.expires_at(time_sent_ + chrono::seconds(1));
-        timer_.async_wait(boost::bind(&pdping::start_send, this));
+            timer_.expires_at(time_sent_ + chrono::seconds(1));
+            timer_.async_wait(boost::bind(&pdping::start_send, this));
+        });
     }
 
     void
@@ -308,41 +304,40 @@ struct pdping final
     {
         reply_buf_.consume(reply_buf_.size());
         socket_.async_receive(reply_buf_.prepare(65536), 
-                boost::bind(&pdping::handle_receive, this, _2));
-    }
+                [this](const boost::system::error_code&, size_t len){
+                    reply_buf_.commit(len);
+                    std::istream is(&reply_buf_);
+                    ipv4_header ipv4h;
+                    icmp_header icmph;
+                    is >> ipv4h >> icmph;
 
-    void
-    handle_receive (std::size_t len)
-    {
-        reply_buf_.commit(len);
-        std::istream is(&reply_buf_);
-        ipv4_header ipv4h;
-        icmp_header icmph;
-        is >> ipv4h >> icmph;
+                    if (is && icmph.type() == icmp_header::echo_reply
+                           && icmph.id() == getid()
+                           && icmph.sequence_number() == n_sended_)
+                    {
+                        if (n_replies_++ == 0)
+                            timer_.cancel();
 
-        if (is && icmph.type() == icmp_header::echo_reply
-               && icmph.id() == getid()
-               && icmph.sequence_number() == n_sended_)
-        {
-            if (n_replies_++ == 0)
-                timer_.cancel();
+                        chrono::steady_clock::time_point now
+                            = chrono::steady_clock::now();
+                        chrono::steady_clock::duration elapsed
+                            = now - time_sent_;
 
-            chrono::steady_clock::time_point now
-                = chrono::steady_clock::now();
-            chrono::steady_clock::duration elapsed
-                = now - time_sent_;
+                        std::cout << len - ipv4h.header_length()
+                        << " bytes from " << ipv4h.source_address()
+                        << ": icmp_seq=" << icmph.sequence_number()
+                        << ", ttl=" << ipv4h.time_to_live()
+                        << ", time="
+                        << static_cast<double>(
+                                chrono::duration_cast<chrono::nanoseconds>(
+                                    elapsed).count()) / 1e6 << "ms\n";
 
-            std::cout << len - ipv4h.header_length()
-            << " bytes from " << ipv4h.source_address()
-            << ": icmp_seq=" << icmph.sequence_number()
-            << ", ttl=" << ipv4h.time_to_live()
-            << ", time="
-            << static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(elapsed).count()) / 1e6 << "ms\n";
-
-            if (n_sended_ == m_sended_)
-                return;
-        }
-        start_receive();
+                        if (n_sended_ == m_sended_)
+                            return;
+                    }
+                    start_receive();
+                }
+                );
     }
 
     static unsigned short getid() noexcept
